@@ -1,0 +1,446 @@
+// prisma/schema.prisma — SideQuest Full Production Schema
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────
+// AUTH & USERS
+// ──────────────────────────────────────────
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile      Profile?
+  streak       Streak?
+  creatorRep   CreatorReputation?
+
+  quests       Quest[]
+  completions  QuestCompletion[]
+  ratings      QuestRating[]
+  votes        QuestVote[]
+  reports      QuestReport[]       @relation("Reporter")
+
+  posts        Post[]
+  postLikes    PostLike[]
+  comments     PostComment[]
+
+  tournaments  TournamentParticipant[]
+  guildMembers GuildMember[]
+
+  badges       UserBadge[]
+  rewards      UserReward[]
+  notifications Notification[]
+
+  sentFriends  FriendRelation[] @relation("Sender")
+  recvFriends  FriendRelation[] @relation("Receiver")
+  activityFeed ActivityFeedEvent[]
+
+  @@map("users")
+}
+
+enum Role { USER MODERATOR ADMIN }
+
+model Profile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields:[userId], references:[id], onDelete:Cascade)
+  displayName String
+  bio         String?
+  avatarUrl   String?
+  level       Int      @default(1)
+  totalXP     Int      @default(0)
+  coins       Int      @default(0)
+  goals       String[] // fitness|focus|social|exploration|screentime
+  updatedAt   DateTime @updatedAt
+
+  @@map("profiles")
+}
+
+// ──────────────────────────────────────────
+// QUESTS
+// ──────────────────────────────────────────
+model Quest {
+  id             String        @id @default(cuid())
+  title          String
+  description    String
+  category       QuestCategory
+  difficulty     Int           // 1=easy 2=medium 3=hard
+  estimatedTime  String
+  xpReward       Int
+  coinReward     Int           @default(0)
+  locationName   String?
+  imageUrl       String?
+  creatorId      String
+  creator        User          @relation(fields:[creatorId], references:[id])
+  status         QuestStatus   @default(DRAFT)
+  completionCount Int          @default(0)
+  upvoteCount    Int           @default(0)
+  trendingScore  Float         @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  completions    QuestCompletion[]
+  ratings        QuestRating[]
+  votes          QuestVote[]
+  reports        QuestReport[]
+
+  @@index([category, status])
+  @@index([trendingScore(sort:Desc)])
+  @@map("quests")
+}
+
+enum QuestCategory { FITNESS SOCIAL FOCUS EXPLORATION RECOVERY NO_SCREEN }
+enum QuestStatus   { DRAFT PENDING_REVIEW APPROVED OFFICIAL REJECTED FLAGGED }
+
+model QuestCompletion {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields:[userId], references:[id])
+  questId     String
+  quest       Quest    @relation(fields:[questId], references:[id])
+  xpEarned    Int
+  proofPostId String?
+  completedAt DateTime @default(now())
+
+  @@unique([userId, questId])
+  @@map("quest_completions")
+}
+
+model QuestRating {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields:[userId], references:[id])
+  questId      String
+  quest        Quest    @relation(fields:[questId], references:[id])
+  fun          Int      // 1-5
+  usefulness   Int      // 1-5
+  difficulty   Int      // 1-5
+  repeatability Int     // 1-5
+  recommend    Boolean
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, questId])
+  @@map("quest_ratings")
+}
+
+model QuestVote {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields:[userId], references:[id])
+  questId   String
+  quest     Quest    @relation(fields:[questId], references:[id])
+  type      VoteType
+  createdAt DateTime @default(now())
+
+  @@unique([userId, questId])
+  @@map("quest_votes")
+}
+
+enum VoteType { UP DOWN }
+
+model QuestReport {
+  id         String       @id @default(cuid())
+  reporterId String
+  reporter   User         @relation("Reporter", fields:[reporterId], references:[id])
+  questId    String
+  quest      Quest        @relation(fields:[questId], references:[id])
+  reason     String
+  status     ReportStatus @default(OPEN)
+  createdAt  DateTime     @default(now())
+
+  @@map("quest_reports")
+}
+
+enum ReportStatus { OPEN REVIEWED RESOLVED DISMISSED }
+
+// ──────────────────────────────────────────
+// POSTS / SOCIAL PROOF FEED
+// ──────────────────────────────────────────
+model Post {
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation(fields:[userId], references:[id])
+  questId      String?
+  imageUrl     String?
+  caption      String?
+  visibility   PostVisibility @default(PUBLIC)
+  likeCount    Int            @default(0)
+  commentCount Int            @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  likes        PostLike[]
+  comments     PostComment[]
+  media        MediaUpload[]
+
+  @@map("posts")
+}
+
+enum PostVisibility { PUBLIC FRIENDS GUILD PRIVATE }
+
+model PostLike {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields:[userId], references:[id])
+  postId    String
+  post      Post     @relation(fields:[postId], references:[id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, postId])
+  @@map("post_likes")
+}
+
+model PostComment {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields:[userId], references:[id])
+  postId    String
+  post      Post     @relation(fields:[postId], references:[id])
+  content   String
+  createdAt DateTime @default(now())
+
+  @@map("post_comments")
+}
+
+model MediaUpload {
+  id        String   @id @default(cuid())
+  postId    String?
+  post      Post?    @relation(fields:[postId], references:[id])
+  url       String
+  mimeType  String
+  sizeBytes Int
+  width     Int?
+  height    Int?
+  createdAt DateTime @default(now())
+
+  @@map("media_uploads")
+}
+
+// ──────────────────────────────────────────
+// TOURNAMENTS
+// ──────────────────────────────────────────
+model Tournament {
+  id              String                  @id @default(cuid())
+  name            String
+  type            TournamentType
+  rules           String
+  startDate       DateTime
+  endDate         DateTime
+  status          TournamentStatus        @default(UPCOMING)
+  isPublic        Boolean                 @default(true)
+  maxParticipants Int?
+  reward          String?
+  winnerId        String?
+  createdAt       DateTime                @default(now())
+
+  participants    TournamentParticipant[]
+  results         TournamentResult[]
+
+  @@map("tournaments")
+}
+
+enum TournamentType   { MOST_XP MOST_QUESTS MOST_STEPS LONGEST_NO_PHONE MOST_SOCIAL WEEKEND_CHALLENGE }
+enum TournamentStatus { UPCOMING ACTIVE ENDED CANCELLED }
+
+model TournamentParticipant {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields:[tournamentId], references:[id])
+  userId       String
+  user         User       @relation(fields:[userId], references:[id])
+  score        Float      @default(0)
+  rank         Int?
+  joinedAt     DateTime   @default(now())
+
+  @@unique([tournamentId, userId])
+  @@map("tournament_participants")
+}
+
+model TournamentResult {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields:[tournamentId], references:[id])
+  userId       String
+  finalRank    Int
+  finalScore   Float
+  rewardGiven  Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+
+  @@map("tournament_results")
+}
+
+// ──────────────────────────────────────────
+// GUILDS
+// ──────────────────────────────────────────
+model Guild {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  description String?
+  bannerUrl   String?
+  emoji       String?
+  isPublic    Boolean       @default(true)
+  totalXP     Int           @default(0)
+  weeklyXP    Int           @default(0)
+  createdAt   DateTime      @default(now())
+
+  members     GuildMember[]
+
+  @@map("guilds")
+}
+
+model GuildMember {
+  id       String    @id @default(cuid())
+  guildId  String
+  guild    Guild     @relation(fields:[guildId], references:[id])
+  userId   String
+  user     User      @relation(fields:[userId], references:[id])
+  role     GuildRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+
+  @@unique([guildId, userId])
+  @@map("guild_members")
+}
+
+enum GuildRole { MEMBER OFFICER LEADER }
+
+// ──────────────────────────────────────────
+// GAMIFICATION
+// ──────────────────────────────────────────
+model Badge {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  description String
+  icon        String
+  condition   Json        // { type: 'completions'|'streak'|'level', value: number }
+
+  userBadges  UserBadge[]
+  @@map("badges")
+}
+
+model UserBadge {
+  id       String   @id @default(cuid())
+  userId   String
+  user     User     @relation(fields:[userId], references:[id])
+  badgeId  String
+  badge    Badge    @relation(fields:[badgeId], references:[id])
+  earnedAt DateTime @default(now())
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+model Reward {
+  id          String     @id @default(cuid())
+  name        String
+  description String
+  icon        String
+  type        RewardType
+  coinCost    Int
+  stock       Int?
+
+  userRewards UserReward[]
+  @@map("rewards")
+}
+
+enum RewardType { COSMETIC TITLE BADGE STREAK_SHIELD XP_BOOST REAL_WORLD }
+
+model UserReward {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields:[userId], references:[id])
+  rewardId    String
+  reward      Reward   @relation(fields:[rewardId], references:[id])
+  purchasedAt DateTime @default(now())
+
+  @@map("user_rewards")
+}
+
+model Streak {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  user           User      @relation(fields:[userId], references:[id])
+  current        Int       @default(0)
+  longest        Int       @default(0)
+  lastActivityAt DateTime?
+  shielded       Boolean   @default(false)
+  multiplier     Float     @default(1.0)
+  updatedAt      DateTime  @updatedAt
+
+  @@map("streaks")
+}
+
+model CreatorReputation {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields:[userId], references:[id])
+  score          Float    @default(0)
+  questsCreated  Int      @default(0)
+  avgRating      Float    @default(0)
+  completionRate Float    @default(0)
+  updatedAt      DateTime @updatedAt
+
+  @@map("creator_reputations")
+}
+
+// ──────────────────────────────────────────
+// NOTIFICATIONS & SOCIAL
+// ──────────────────────────────────────────
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields:[userId], references:[id])
+  type      NotificationType
+  title     String
+  body      String
+  link      String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  QUEST_APPROVED QUEST_COMPLETED POST_LIKED POST_COMMENTED
+  TOURNAMENT_JOINED LEADERBOARD_MOVED TOURNAMENT_ENDING
+  BADGE_UNLOCKED DAILY_REFRESH GUILD_INVITE FRIEND_REQUEST
+}
+
+model FriendRelation {
+  id         String       @id @default(cuid())
+  senderId   String
+  sender     User         @relation("Sender", fields:[senderId], references:[id])
+  receiverId String
+  receiver   User         @relation("Receiver", fields:[receiverId], references:[id])
+  status     FriendStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+
+  @@unique([senderId, receiverId])
+  @@map("friend_relations")
+}
+
+enum FriendStatus { PENDING ACCEPTED BLOCKED }
+
+model ActivityFeedEvent {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields:[userId], references:[id])
+  type      FeedEventType
+  data      Json
+  createdAt DateTime      @default(now())
+
+  @@map("activity_feed_events")
+}
+
+enum FeedEventType {
+  QUEST_COMPLETED LEVEL_UP BADGE_EARNED
+  TOURNAMENT_WIN STREAK_MILESTONE GUILD_JOINED QUEST_CREATED
+}
