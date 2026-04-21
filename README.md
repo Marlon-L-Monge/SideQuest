@@ -5,7 +5,7 @@ A gamified real-world adventure platform that turns movement, focus, and friends
 
 ## 🚀 Live Demo
 
-**[Open SideQuest →](https://YOUR-USERNAME.github.io/sidequest)**
+**[Open SideQuest →](https://side-quest-omega-eight.vercel.app/)**
 
 ## 📁 What's In This Repo
 
